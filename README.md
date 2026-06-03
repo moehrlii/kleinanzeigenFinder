@@ -72,7 +72,7 @@ Voraussetzungen:
 2. Playwright/Chromium installieren:
 
     ```powershell
-    go run [github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1](https://github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1) install --with-deps chromium
+    go run https://github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install --with-deps chromium
     ```
 
 3. Konfiguration anlegen:
