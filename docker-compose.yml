@@ -1,0 +1,21 @@
+services:
+  kleinanzeigen-finder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kleinanzeigen-finder:local
+    container_name: kleinanzeigen-finder
+    restart: unless-stopped
+    working_dir: /app
+    command: ["run"]
+    env_file:
+      - .env
+    environment:
+      TZ: Europe/Berlin
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true

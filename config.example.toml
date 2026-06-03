@@ -1,0 +1,48 @@
+[app]
+database = "data/seen.sqlite3"
+
+[logging]
+level = "INFO"
+file = "logs/kleinanzeigen-finder.log"
+rotation = "10 MB"
+retention = "14 days"
+
+[scraper]
+headless = true
+timeout_ms = 30000
+detail_delay_seconds = 0.8
+detail_concurrency = 1
+user_agent = ""
+
+[telegram]
+enabled = true
+bot_token_env = "TELEGRAM_BOT_TOKEN"
+chat_id_env = "TELEGRAM_CHAT_ID"
+disable_web_page_preview = false
+
+[discord]
+enabled = false
+token_env = "DISCORD_BOT_TOKEN"
+guild_id_env = "DISCORD_GUILD_ID"
+admin_role_ids = []
+category_name = "kleinanzeigen"
+review_channel_name = "kf-review"
+channel_prefix = "kf-"
+sync_commands = true
+
+[whatsapp]
+enabled = false
+session_db = "data/whatsapp_session.sqlite3"
+target_phone = ""
+
+[llm]
+enabled = true
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model = "deepseek-chat"
+min_score = 70
+timeout_seconds = 90
+max_retries = 2
+retry_delay_seconds = 3
+classification_concurrency = 2
+max_description_chars = 3500
