@@ -72,7 +72,7 @@ Voraussetzungen:
 2. Playwright/Chromium installieren:
 
     ```powershell
-    go run https://github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install --with-deps chromium
+    go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
     ```
 
 3. Konfiguration anlegen:
@@ -333,6 +333,12 @@ GitHub Actions is sufficient for these Go and Chromium tests; no Dagger service,
 OpenAI key, marketplace account, application configuration, or notification secrets
 are required.
 
+The project uses `github.com/mxschmitt/playwright-go`, pinned in `go.mod`. Its
+installer assembles the driver from npm and Node.js distributions; the former
+`playwright-community` module's driver CDN returns 404 on fresh installations.
+CI installs into fresh job-local directories and retains `playwright-install.log`
+and `playwright-version.log` alongside test results, including installation failures.
+
 The workflow has two layers:
 
 - **Offline regressions:** local HTTP fixtures exercise ImmoScout response contracts,
@@ -370,7 +376,7 @@ For a local run in PowerShell:
 
 ```powershell
 # Install the Playwright browser matching go.mod. Add --with-deps on Linux CI.
-go run github.com/playwright-community/playwright-go/cmd/playwright install chromium
+go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
 $env:KF_BROWSER_TESTS = "1"
 go test -count=1 -timeout=5m ./...
 
