@@ -4,6 +4,7 @@
 data/
 logs/
 playwright-report/
+artifacts/
 *.exe
 kleinanzeigen-finder
 config.toml

@@ -23,7 +23,7 @@ WORKDIR /app
 COPY --from=builder /go/bin/playwright /usr/local/bin/playwright
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata xvfb xauth tini \
     && playwright install --with-deps chromium \
     && mkdir -p /app/data /app/logs \
     && rm -rf /var/lib/apt/lists/*
@@ -32,5 +32,6 @@ COPY --from=builder /out/kleinanzeigen-finder /usr/local/bin/kleinanzeigen-finde
 
 VOLUME ["/app/data", "/app/logs"]
 
-ENTRYPOINT ["/usr/local/bin/kleinanzeigen-finder"]
+# Xvfb's readiness signal needs a parent other than PID 1; tini also reaps children.
+ENTRYPOINT ["tini", "-g", "--", "xvfb-run", "-a", "/usr/local/bin/kleinanzeigen-finder"]
 CMD ["run"]
