@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 15
     env:
       KF_BROWSER_TESTS: '1'
+      PLAYWRIGHT_SKIP_BROWSER_GC: '1'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -46,7 +47,15 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install the Playwright version from go.mod
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
+        run: |
+          # Fresh job-local installs detect broken upstream download endpoints.
+          export PLAYWRIGHT_DRIVER_PATH="$RUNNER_TEMP/playwright-driver"
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/playwright-browsers"
+          echo "PLAYWRIGHT_DRIVER_PATH=$PLAYWRIGHT_DRIVER_PATH" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
+          mkdir -p artifacts
+          go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium 2>&1 | tee artifacts/playwright-install.log
+          go run github.com/mxschmitt/playwright-go/cmd/playwright --version | tee artifacts/playwright-version.log
       - name: Run regressions without live marketplace requests
         run: |
           mkdir -p artifacts
@@ -96,6 +105,7 @@ jobs:
       KF_LIVE_PROVIDERS: '1'
       KF_LIVE_PROVIDER: ${{ matrix.id }}
       KF_PROVIDER_REPORT_DIR: ${{ github.workspace }}/artifacts
+      PLAYWRIGHT_SKIP_BROWSER_GC: '1'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -105,7 +115,14 @@ jobs:
           go-version-file: go.mod
       - name: Install Chromium when required
         if: matrix.browser
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
+        run: |
+          export PLAYWRIGHT_DRIVER_PATH="$RUNNER_TEMP/playwright-driver"
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/playwright-browsers"
+          echo "PLAYWRIGHT_DRIVER_PATH=$PLAYWRIGHT_DRIVER_PATH" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
+          mkdir -p artifacts
+          go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium 2>&1 | tee artifacts/playwright-install.log
+          go run github.com/mxschmitt/playwright-go/cmd/playwright --version | tee artifacts/playwright-version.log
       - name: Check live search, details, and gallery
         run: |
           mkdir -p artifacts
