@@ -324,6 +324,78 @@ For the local gallery browser fixture with Playwright/Chromium installed, set
 `$env:KF_BROWSER_TESTS = "1"` in PowerShell and run `go test ./providers/kleinanzeigen`.
 The fixture blocks external image requests.
 
-For the opt-in live ImmoScout check, set `$env:KF_LIVE_IMMOSCOUT = "1"` and run
-`go test ./providers/immoscout -run TestImmoScoutFetchListingsLiveKarlsruhe -v`.
-This fetches a bounded search result and one detail response without sending notifications.
+### Weekly provider health checks
+
+`.github/workflows/provider-health.yml` runs every Monday at **05:23 UTC**
+(06:23 CET / 07:23 CEST) and can also be started with **Actions > Provider health >
+Run workflow**. Pushes and pull requests run the offline regressions only.
+GitHub Actions is sufficient for these Go and Chromium tests; no Dagger service,
+OpenAI key, marketplace account, application configuration, or notification secrets
+are required.
+
+The workflow has two layers:
+
+- **Offline regressions:** local HTTP fixtures exercise ImmoScout response contracts,
+  changed envelopes/types, CAPTCHA HTML/JSON, authentication failures, rate limits,
+  removed offers, and server errors. Intercepted Chromium fixtures exercise
+  Kleinanzeigen search cards, pagination limits, exclusion of recommendations,
+  descriptions, rent and gallery extraction, visible challenges, hidden CAPTCHA
+  widgets, and malformed detail pages. Fixture requests never reach a marketplace.
+- **Live probes:** separate jobs open each implemented provider through the production
+  registry. Each probe fetches one broad Berlin rental search page (at most five
+  normalized listings), validates IDs, URLs, titles, rent and location, and checks
+  up to three fresh details. Search snippets and thumbnails are cleared before
+  fetching details so they cannot mask a broken extractor. At least one sampled
+  detail must return a description and gallery. The probe reads the first 512 bytes
+  from one gallery URL to verify it actually serves an image.
+
+Live failures fail the workflow. CAPTCHA/browser challenges, denied access, rate
+limits, unavailable endpoints, unexpected HTTP statuses, and changed data contracts
+have distinct error categories. Unknown failures remain `network_or_runtime`;
+a missing field or empty search indicates a possible upstream change, not proof
+that the API was redesigned. Access blocks are reported immediately, without
+automated retries or challenge solving. A detail that returns 404/410 is allowed
+to fall out of the bounded sample because listings can disappear between requests.
+If the whole sample lacks detail text or photos, the probe fails for investigation.
+
+The Actions job summary contains extraction counts, stage, timing and failure
+category. JSON reports and `go test -json` event logs are uploaded on success and
+failure and retained for 30 days. Live response bodies, descriptions, photos,
+cookies and credentials are not stored. Setup errors and hard timeouts may only
+produce a job/event log. Artifacts from local runs belong in ignored `artifacts/`.
+GitHub-hosted IPs can receive different access restrictions from your own computer;
+rerun the same check locally to distinguish runner access policy from parser drift.
+
+For a local run in PowerShell:
+
+```powershell
+# Install the Playwright browser matching go.mod. Add --with-deps on Linux CI.
+go run github.com/playwright-community/playwright-go/cmd/playwright install chromium
+$env:KF_BROWSER_TESTS = "1"
+go test -count=1 -timeout=5m ./...
+
+$env:KF_LIVE_PROVIDERS = "1"
+$env:KF_PROVIDER_REPORT_DIR = Join-Path (Get-Location) "artifacts"
+# Optional: restrict the live run to "kleinanzeigen" or "immoscout".
+# $env:KF_LIVE_PROVIDER = "immoscout"
+go test -count=1 -timeout=5m -v ./providers/providercheck -run '^TestLiveProviders$'
+Remove-Item Env:KF_LIVE_PROVIDERS
+Remove-Item Env:KF_LIVE_PROVIDER -ErrorAction SilentlyContinue
+```
+
+Use `-count=1` to prevent Go from reusing a cached successful live result. A normal
+`go test ./...` skips live probes unless explicitly enabled. The older focused
+ImmoScout check remains available through `KF_LIVE_IMMOSCOUT=1`.
+
+`providers/providercheck/probes.json` is the single source for the live CI matrix
+and search fixtures. When implementing eBay, WG-Gesucht or another marketplace,
+add its probe with a broad stable search, ID pattern and browser requirement,
+adapt the sampled content checks to its listing type, and add offline API/HTML
+fixtures in its package. `TestLiveProbeCoverage` fails if an implemented provider
+has no probe or a probe points to a missing/planned provider. The currently reserved
+eBay and WG-Gesucht integrations are not reported as healthy.
+
+The workflow must be pushed to the repository's default branch for scheduled runs.
+GitHub can delay scheduled jobs, and public repositories can have schedules disabled
+after 60 days of inactivity; see the
+[GitHub schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
