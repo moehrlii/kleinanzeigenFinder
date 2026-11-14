@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -85,7 +86,7 @@ type MonitorRepository struct {
 }
 
 func NewMonitorRepository(db *gorm.DB) *MonitorRepository {
-	_ = db.AutoMigrate(&MonitorModel{}, &DiscordMessageModel{}, &ListingFeedbackModel{}, &ListingQueueModel{})
+	_ = db.AutoMigrate(&MonitorModel{}, &DiscordMessageModel{}, &ListingFeedbackModel{}, &ListingQueueModel{}, &MonitorDraftModel{})
 	return &MonitorRepository{db: db}
 }
 
@@ -361,4 +362,36 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// MonitorDraftModel preserves complete wizard output across restarts and preview truncation.
+type MonitorDraftModel struct {
+	ID        string `gorm:"primaryKey"`
+	Owner     string
+	Payload   string
+	ExpiresAt time.Time
+}
+
+func (r *MonitorRepository) SaveDraft(draft config.MonitorConfig, owner string) (string, error) {
+	payload, err := json.Marshal(draft)
+	if err != nil {
+		return "", err
+	}
+	record := MonitorDraftModel{ID: rand.Text(), Owner: owner, Payload: string(payload), ExpiresAt: time.Now().Add(24 * time.Hour)}
+	if err := r.db.Create(&record).Error; err != nil {
+		return "", err
+	}
+	return record.ID, nil
+}
+
+func (r *MonitorRepository) GetDraft(id, owner string) (*config.MonitorConfig, error) {
+	var record MonitorDraftModel
+	if err := r.db.Where("id = ? AND owner = ? AND expires_at > ?", id, owner, time.Now()).First(&record).Error; err != nil {
+		return nil, fmt.Errorf("draft expired or unavailable")
+	}
+	var draft config.MonitorConfig
+	if err := json.Unmarshal([]byte(record.Payload), &draft); err != nil {
+		return nil, err
+	}
+	return &draft, nil
 }

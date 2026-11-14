@@ -332,8 +332,15 @@ func (b *Bot) handleMonitorCommand(s *discordgo.Session, i *discordgo.Interactio
 func (b *Bot) handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	id := i.MessageComponentData().CustomID
 
-	switch id {
-	// Does not really work yet -_-
+	actionID := id
+	if strings.HasPrefix(id, "kf:btn:save_draft:") {
+		actionID = "kf:btn:save_draft"
+	}
+	if strings.HasPrefix(id, "kf:btn:edit_draft:") {
+		actionID = "kf:btn:edit_draft"
+	}
+	switch actionID {
+	// Wizard actions keep their complete draft in SQLite.
 	case "kf:btn:ai_wizard":
 		if !b.isAuthorized(i) {
 			b.ephemeralReply(s, i, "No permission.")
@@ -420,7 +427,7 @@ func (b *Bot) handleModal(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	parts := strings.SplitN(id, ":", 4)
 
 	switch {
-	case id == "kf:modal:manual_create" || id == "kf:modal:manual_edit":
+	case id == "kf:modal:manual_create" || id == "kf:modal:manual_edit" || strings.HasPrefix(id, "kf:modal:draft_edit:"):
 		b.handleManualMonitorModal(s, i)
 
 	case id == "kf:modal:ai_wizard":
@@ -455,8 +462,9 @@ func (b *Bot) handleManualMonitorModal(s *discordgo.Session, i *discordgo.Intera
 		scanSettings = modalTextValue(i, "interval_seconds")
 	}
 
-	if !strings.HasPrefix(searchURL, "https://www.kleinanzeigen.de/") {
-		b.ephemeralReply(s, i, "Please use a valid `https://www.kleinanzeigen.de/` search URL.")
+	provider, err := b.classifier.ProviderForURL(searchURL)
+	if err != nil {
+		b.ephemeralReply(s, i, err.Error())
 		return
 	}
 
@@ -469,6 +477,7 @@ func (b *Bot) handleManualMonitorModal(s *discordgo.Session, i *discordgo.Intera
 	}
 
 	monitor := config.MonitorConfig{
+		Platform:                provider.ID,
 		Name:                    name,
 		SearchURL:               searchURL,
 		Criteria:                criteria,
@@ -486,7 +495,33 @@ func (b *Bot) handleManualMonitorModal(s *discordgo.Session, i *discordgo.Intera
 		},
 	}
 
-	_ = b.monRepo.Upsert(monitor, "discord")
+	var original *config.MonitorConfig
+	if strings.HasPrefix(i.ModalSubmitData().CustomID, "kf:modal:draft_edit:") {
+		var err error
+		original, err = b.monRepo.GetDraft(strings.TrimPrefix(i.ModalSubmitData().CustomID, "kf:modal:draft_edit:"), i.Member.User.ID)
+		if err != nil {
+			b.ephemeralReply(s, i, "Draft expired or unavailable.")
+			return
+		}
+	} else if i.ModalSubmitData().CustomID == "kf:modal:manual_edit" {
+		original = b.monRepo.Get(name)
+	}
+	if original != nil {
+		monitor.Platform = original.Platform
+		monitor.Rules = original.Rules
+		monitor.Rules.ExcludeKeywords = splitWords(excludeRaw)
+		monitor.Enabled = original.Enabled
+		monitor.FetchDetails = original.FetchDetails
+		monitor.MaxResults = original.MaxResults
+	}
+	if err := b.classifier.ValidateDraft(monitor); err != nil {
+		b.ephemeralReply(s, i, err.Error())
+		return
+	}
+	if err := b.monRepo.Upsert(monitor, "discord"); err != nil {
+		b.ephemeralReply(s, i, "Could not save monitor.")
+		return
+	}
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -508,9 +543,6 @@ func (b *Bot) handleManualMonitorModal(s *discordgo.Session, i *discordgo.Intera
 func (b *Bot) handleAIWizardModal(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	description := modalTextValue(i, "description")
 	searchURL := modalTextValue(i, "search_url")
-	if searchURL == "" {
-		searchURL = buildGenericSearchURL(description)
-	}
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -526,30 +558,39 @@ func (b *Bot) handleAIWizardModal(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 
+	draftID, err := b.monRepo.SaveDraft(draft, i.Member.User.ID)
+	if err != nil {
+		b.followupEphemeral(s, i, "Could not save draft. Please try again.")
+		return
+	}
 	preview := formatDraftPreview(draft)
 	_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: preview,
 		Flags:   discordgo.MessageFlagsEphemeral,
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.Button{Label: "✅ Save Monitor", Style: discordgo.SuccessButton, CustomID: "kf:btn:save_draft"},
-				discordgo.Button{Label: "✏️ Edit Manually", Style: discordgo.SecondaryButton, CustomID: "kf:btn:edit_draft"},
+				discordgo.Button{Label: "✅ Save Monitor", Style: discordgo.SuccessButton, CustomID: "kf:btn:save_draft:" + draftID},
+				discordgo.Button{Label: "✏️ Edit Manually", Style: discordgo.SecondaryButton, CustomID: "kf:btn:edit_draft:" + draftID},
 			}},
 		},
 	})
 }
 
 func (b *Bot) saveDraftFromMessage(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	content := ""
-	if i.Message != nil {
-		content = i.Message.Content
-	}
-	monitor, ok := parseDraftPreview(content)
-	if !ok {
-		b.ephemeralReply(s, i, "Could not parse draft. Please use `/monitor create` again.")
+	draftID := strings.TrimPrefix(i.MessageComponentData().CustomID, "kf:btn:save_draft:")
+	monitor, err := b.monRepo.GetDraft(draftID, i.Member.User.ID)
+	if err != nil {
+		b.ephemeralReply(s, i, "Draft expired or unavailable. Create a new draft.")
 		return
 	}
-	_ = b.monRepo.Upsert(*monitor, "discord-ai")
+	if err := b.classifier.ValidateDraft(*monitor); err != nil {
+		b.ephemeralReply(s, i, err.Error())
+		return
+	}
+	if err := b.monRepo.Upsert(*monitor, "discord-ai"); err != nil {
+		b.ephemeralReply(s, i, "Could not save monitor.")
+		return
+	}
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
@@ -565,18 +606,15 @@ func (b *Bot) saveDraftFromMessage(s *discordgo.Session, i *discordgo.Interactio
 }
 
 func (b *Bot) editDraftFromMessage(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	content := ""
-	if i.Message != nil {
-		content = i.Message.Content
+	draftID := strings.TrimPrefix(i.MessageComponentData().CustomID, "kf:btn:edit_draft:")
+	monitor, err := b.monRepo.GetDraft(draftID, i.Member.User.ID)
+	if err != nil {
+		b.ephemeralReply(s, i, "Draft expired or unavailable. Create a new draft.")
+		return
 	}
-	monitor, ok := parseDraftPreview(content)
-	if !ok {
-		monitor = &config.MonitorConfig{}
-	}
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: manualMonitorModal(monitor),
-	})
+	modal := manualMonitorModal(monitor)
+	modal.CustomID = "kf:modal:draft_edit:" + draftID
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseModal, Data: modal})
 }
 
 func (b *Bot) handleListingFeedbackAction(s *discordgo.Session, i *discordgo.InteractionCreate, action, monitorName, listingID string) {
@@ -844,16 +882,6 @@ func splitWords(s string) []string {
 	return result
 }
 
-func buildGenericSearchURL(description string) string {
-	re := regexp.MustCompile(`[a-zA-ZäöüÄÖÜß0-9]{4,}`)
-	words := re.FindAllString(description, 8)
-	query := slugify(strings.Join(words, "-"))
-	if query == "" {
-		query = "suche"
-	}
-	return "https://www.kleinanzeigen.de/s-" + query + "/k0"
-}
-
 func parseScanSettings(value string, fallbackInterval, fallbackDetailPages, fallbackWatchInterval, fallbackWatchPages int) (int, int, int, int) {
 	interval := fallbackInterval
 	detailPages := fallbackDetailPages
@@ -910,16 +938,16 @@ func manualMonitorModal(existing *config.MonitorConfig) *discordgo.InteractionRe
 
 	return &discordgo.InteractionResponseData{
 		CustomID: modalID,
-		Title:    title,
+		Title:    string([]rune(title)[:min(len([]rune(title)), 45)]),
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 				discordgo.TextInput{CustomID: "name", Label: "Monitor Name", Style: discordgo.TextInputShort, Value: name, Required: true, MaxLength: 80},
 			}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.TextInput{CustomID: "search_url", Label: "Kleinanzeigen Search URL", Style: discordgo.TextInputParagraph, Value: searchURL, Required: true},
+				discordgo.TextInput{CustomID: "search_url", Label: "Marketplace Search URL", Style: discordgo.TextInputParagraph, Value: searchURL, Required: true},
 			}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.TextInput{CustomID: "criteria", Label: "LLM Fit Criteria", Style: discordgo.TextInputParagraph, Value: criteria, Required: true, MaxLength: 1500},
+				discordgo.TextInput{CustomID: "criteria", Label: "LLM Fit Criteria", Style: discordgo.TextInputParagraph, Value: criteria, Required: true, MaxLength: 4000},
 			}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 				discordgo.TextInput{CustomID: "exclude_keywords", Label: "Exclude keywords (comma-separated)", Style: discordgo.TextInputShort, Value: excludeKW, Required: false},
@@ -949,7 +977,7 @@ func aiWizardModal() *discordgo.InteractionResponseData {
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 				discordgo.TextInput{
 					CustomID: "search_url",
-					Label:    "Kleinanzeigen URL (if you already have one)",
+					Label:    "Search URL (if you already have one)",
 					Style:    discordgo.TextInputParagraph,
 					Required: false,
 				},
@@ -974,87 +1002,21 @@ func formatDraftPreview(draft config.MonitorConfig) string {
 	if len(draft.Rules.ExcludeKeywords) > 0 {
 		lines = append(lines, "", "**Exclude:** "+strings.Join(draft.Rules.ExcludeKeywords, ", "))
 	}
+	if len(draft.Rules.IncludeKeywords) > 0 {
+		lines = append(lines, "Required keywords: "+strings.Join(draft.Rules.IncludeKeywords, ", "))
+	}
+	if len(draft.Rules.IncludeAny) > 0 {
+		lines = append(lines, "Any keyword: "+strings.Join(draft.Rules.IncludeAny, ", "))
+	}
+	if draft.Rules.MinPrice != nil {
+		lines = append(lines, fmt.Sprintf("Minimum price: %.2f", *draft.Rules.MinPrice))
+	}
+	if draft.Rules.MaxPrice != nil {
+		lines = append(lines, fmt.Sprintf("Maximum price: %.2f", *draft.Rules.MaxPrice))
+	}
 	preview := strings.Join(lines, "\n")
 	if len(preview) > 1900 {
-		preview = preview[:1897] + "..."
+		preview = string([]rune(preview)[:min(1750, len([]rune(preview)))]) + "\nPreview shortened. The complete criteria and rules are saved."
 	}
 	return preview
-}
-
-func parseDraftPreview(content string) (*config.MonitorConfig, bool) {
-	nameRe := regexp.MustCompile("\\*\\*Name:\\*\\* `([^`]+)`")
-	urlRe := regexp.MustCompile("\\*\\*URL:\\*\\* <([^>]+)>")
-	lifecycleRe := regexp.MustCompile("\\*\\*Mode:\\*\\* (\\w+) \\| \\*\\*Backfill:\\*\\* (\\d+)s \\| \\*\\*Watch:\\*\\* (\\d+)s/(\\d+) page\\(s\\) \\| \\*\\*Search cap:\\*\\* (\\d+|unlimited) \\| \\*\\*Details:\\*\\* (true|false)/(\\d+)")
-	legacyScanRe := regexp.MustCompile("\\*\\*Interval:\\*\\* (\\d+)s \\| \\*\\*(?:Search cap|Results):\\*\\* (\\d+|unlimited) \\| \\*\\*Details:\\*\\* (true|false)/(\\d+)")
-	criteriaRe := regexp.MustCompile("(?s)\\*\\*Criteria:\\*\\*\n(.+?)(?:\n\n|$)")
-
-	nameM := nameRe.FindStringSubmatch(content)
-	urlM := urlRe.FindStringSubmatch(content)
-	if nameM == nil || urlM == nil {
-		return nil, false
-	}
-	criteria := ""
-	if cm := criteriaRe.FindStringSubmatch(content); cm != nil {
-		criteria = strings.TrimSpace(cm[1])
-	}
-
-	mode := "backfill"
-	intervalSeconds := 300
-	backfillIntervalSeconds := 300
-	watchIntervalSeconds := 1800
-	watchPages := 2
-	maxResults := 0
-	fetchDetails := true
-	maxDetailPages := 8
-	if lifecycleM := lifecycleRe.FindStringSubmatch(content); lifecycleM != nil {
-		mode = lifecycleM[1]
-		if n, err := strconv.Atoi(lifecycleM[2]); err == nil && n >= 60 {
-			intervalSeconds = n
-			backfillIntervalSeconds = n
-		}
-		if n, err := strconv.Atoi(lifecycleM[3]); err == nil && n >= 60 {
-			watchIntervalSeconds = n
-		}
-		if n, err := strconv.Atoi(lifecycleM[4]); err == nil && n > 0 {
-			watchPages = n
-		}
-		if lifecycleM[5] == "unlimited" {
-			maxResults = 0
-		} else if n, err := strconv.Atoi(lifecycleM[5]); err == nil && n >= 0 {
-			maxResults = n
-		}
-		fetchDetails = lifecycleM[6] == "true"
-		if n, err := strconv.Atoi(lifecycleM[7]); err == nil && n >= 0 {
-			maxDetailPages = n
-		}
-	} else if scanM := legacyScanRe.FindStringSubmatch(content); scanM != nil {
-		if n, err := strconv.Atoi(scanM[1]); err == nil && n >= 60 {
-			intervalSeconds = n
-			backfillIntervalSeconds = n
-		}
-		if scanM[2] == "unlimited" {
-			maxResults = 0
-		} else if n, err := strconv.Atoi(scanM[2]); err == nil && n >= 0 {
-			maxResults = n
-		}
-		fetchDetails = scanM[3] == "true"
-		if n, err := strconv.Atoi(scanM[4]); err == nil && n >= 0 {
-			maxDetailPages = n
-		}
-	}
-
-	return &config.MonitorConfig{
-		Name:                    nameM[1],
-		SearchURL:               urlM[1],
-		Criteria:                criteria,
-		Mode:                    mode,
-		IntervalSeconds:         intervalSeconds,
-		BackfillIntervalSeconds: backfillIntervalSeconds,
-		WatchIntervalSeconds:    watchIntervalSeconds,
-		WatchPages:              watchPages,
-		MaxResults:              maxResults,
-		FetchDetails:            fetchDetails,
-		MaxDetailPages:          maxDetailPages,
-		Enabled:                 true,
-	}, true
 }
