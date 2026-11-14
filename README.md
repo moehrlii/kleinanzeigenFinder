@@ -1,6 +1,6 @@
 # KleinanzeigenFinder
 
-KleinanzeigenFinder überwacht Kleinanzeigen-Such-URLs, sammelt neue Anzeigen ein, lädt bei Bedarf die Detailseiten, bewertet die Anzeigen per LLM und verschickt passende Treffer an Discord, Telegram oder WhatsApp.
+KleinanzeigenFinder überwacht Kleinanzeigen- und ImmoScout24-Such-URLs, sammelt neue Anzeigen ein, lädt bei Bedarf die Detailseiten, bewertet die Anzeigen per LLM und verschickt passende Treffer an Discord, Telegram oder WhatsApp.
 
 ## Funktionen
 
@@ -26,7 +26,7 @@ Voraussetzungen:
 2. `.env` ausfüllen:
 
     ```env
-    DEEPSEEK_API_KEY=...
+    OPENAI_API_KEY=...
     DISCORD_BOT_TOKEN=...
     DISCORD_GUILD_ID=...
     TELEGRAM_BOT_TOKEN=...
@@ -138,9 +138,9 @@ detail_concurrency = 1
 ```toml
 [llm]
 enabled = true
-api_key_env = "DEEPSEEK_API_KEY"
-base_url = "https://api.deepseek.com"
-model = "deepseek-chat"
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com/v1"
+model = "gpt-6-astra"
 min_score = 70
 timeout_seconds = 90
 max_retries = 2
@@ -151,7 +151,7 @@ classification_concurrency = 2
 
 - `min_score`: Mindestscore für passende Anzeigen.
 - `classification_concurrency`: Parallele LLM-Bewertungen.
-- `DEEPSEEK_MODEL`: Optionaler ENV-Override für das Modell.
+- `OPENAI_MODEL`: Optionaler ENV-Override für das Modell.
 
 ### Telegram
 
@@ -217,3 +217,113 @@ https://www.kleinanzeigen.de/s-wohnung-mieten/berlin/sortierung:neuste/preis::10
 - Sortierung auf `neuste` setzen.
 - Preis, Ort, Radius und Kategorie direkt in der Such-URL setzen.
 - Kriterien im Monitor als natürliche Sprache beschreiben, zum Beispiel: `2 Zimmer, Balkon nice-to-have, keine Suchanzeigen, Warmmiete unter 1000 Euro, etc...`.
+
+
+## OpenAI, Bilder und AI-Wizard
+
+Die Bewertung verwendet die OpenAI Responses API. In `.env` wird `OPENAI_API_KEY`
+gesetzt. Bestehende `config.toml`-Dateien m?ssen im Abschnitt `[llm]` auf
+`api_key_env = "OPENAI_API_KEY"`, `base_url = "https://api.openai.com/v1"` und
+`model = "gpt-6-astra"` umgestellt werden. `OPENAI_MODEL` ?berschreibt das Modell.
+Das gew?hlte Modell muss Bild-Eingaben und Structured Outputs ?ber Responses unterst?tzen.
+
+`max_images = 8` begrenzt die Bilder pro Bewertung (0 deaktiviert Bilder, Maximum 32).
+`image_detail = "auto"` kann auch `low` oder `high` sein. Bilder werden ?ber ihre
+?ffentlichen HTTPS-URLs an OpenAI ?bergeben und verursachen zus?tzliche API-Nutzung.
+Detailseiten liefern die Galerie, ?ltere gespeicherte Anzeigen k?nnen ihr Vorschaubild nutzen.
+Wenn OpenAI ein Bild nicht abrufen kann, bleibt die Bewertung zur Wiederholung in der Queue.
+Ohne verf?gbare Bilder erfolgt eine Textbewertung mit entsprechendem Hinweis.
+
+Die Benachrichtigung enth?lt die gemeinsame Bewertung, sichtbare Merkmale aus Fotos
+und offene Fragen. Aus Bildern werden keine gesicherten Aussagen zu unsichtbaren M?ngeln,
+exakten Ma?en oder nicht gezeigten Ausstattungsmerkmalen abgeleitet.
+
+?ber `/monitor create` ? AI Wizard lassen sich W?nsche, Muss-Kriterien, Budget und
+visuelle Vorlieben in nat?rlicher Sprache eingeben. Der Wizard erstellt Such-URL,
+Bewertungskriterien, lokale Regeln und Scan-Einstellungen. Eine angegebene Such-URL
+bleibt erhalten. Ohne URL erstellt die AI eine breite Stichwortsuche. Orts- und
+Budgetanforderungen bleiben dann in den Bewertungskriterien und sollten anhand der
+vorgeschlagenen Suche gepr?ft werden. Die Vorschau kann gek?rzt sein. Der vollst?ndige
+Entwurf wird f?r 24 Stunden in SQLite gespeichert und beim Speichern oder manuellen
+Bearbeiten verwendet, einschlie?lich Preis- und Keyword-Regeln.
+
+Fehlgeschlagene AI-Bewertungen bleiben in der Queue. Sie werden bei folgenden L?ufen
+erneut versucht. Fehlversuche werden hinter Eintr?gen mit weniger Versuchen verarbeitet.
+`--no-notify` verarbeitet und speichert weiterhin Anzeigen, ohne Benachrichtigungen zu senden.
+
+## ImmoScout24
+
+The restored provider uses the ImmoScout24 mobile API for search and listing details.
+Optional settings in `config.toml` have these defaults.
+
+```toml
+[immoscout]
+api_base_url = "https://api.mobile.immobilienscout24.de"
+user_agent = "ImmoScout_27.12_26.2_._"
+page_size = 50
+```
+
+Paste an ImmoScout search URL into the manual monitor form or AI wizard. The registry
+selects ImmoScout and the wizard uses its search instructions. Regional and radius
+searches support apartment and house rentals and purchases, including price, rooms,
+area and equipment filters. Radius coordinates use semicolons, which are preserved
+when translating the URL. Drawn shape searches return an unsupported-search error.
+
+Example search URL
+
+```text
+https://www.immobilienscout24.de/Suche/de/berlin/berlin/wohnung-mieten?price=-1200&pricetype=calculatedtotalrent&numberofrooms=2.0-&sorting=2
+```
+
+The provider retains `is24:` listing IDs from the older implementation. Details include
+warm rent, attributes, description and gallery URLs for OpenAI assessment. Placeholder
+images are excluded from the gallery. The integration depends on the mobile API's
+response format and availability.
+
+## Modular providers
+
+Marketplace implementations live under `providers/`.
+
+| Package | Responsibility | Status |
+| --- | --- | --- |
+| `providers/kleinanzeigen` | Browser lifecycle, pagination, listing and gallery extraction, URL validation, search instructions | Implemented |
+| `providers/kleinanzeigen/parsing` | Kleinanzeigen listing IDs and compatibility access to value parsing | Implemented |
+| `providers/parsing` | Shared German price, room-count and area parsing | Implemented |
+| `providers/immoscout` | Mobile API discovery, URL translation, listing details and gallery extraction | Implemented |
+| `providers/ebay` | eBay integration | Reserved for implementation |
+| `providers/wggesucht` | WG-Gesucht integration | Reserved for implementation |
+| `providers` | Shared interfaces, registry, built-in registrations and legacy platform identity | Implemented |
+
+`providers/builtin.go` registers the built-in marketplaces. Startup opens the available
+providers and closes their resources on exit. The runner receives their instances.
+The AI wizard and manual monitor form use the same registry to identify and validate
+search URLs. Marketplace-specific search instructions live in the provider package.
+Planned integrations return an explicit unavailable error before scraping or AI generation.
+A wizard request without a URL uses the registry default, currently Kleinanzeigen.
+`DraftMonitorForPlatform` also supports explicit platform selection.
+
+To implement another marketplace, add its scraper and extraction logic to its package,
+return normalized `model.Listing` values with stable IDs and offer gallery URLs, and
+implement `FetchListingsPages`, `FetchDetail` and `Close`. Add a URL validator and AI
+search instructions, then complete its `Definition` in `providers/builtin.go` with an
+`Open` factory. Providers must support concurrent monitor calls. The runner, queue,
+classification client and notification transports use the shared listing model.
+
+Existing monitors with an empty platform recover their marketplace from the search URL,
+including ImmoScout monitors from older versions. Unrecognized or absent URLs retain the
+legacy Kleinanzeigen fallback. Explicit platform identities are preserved. Monitor names
+remain globally unique. Changing an existing monitor's platform requires a new
+name to preserve the meaning of stored listing IDs and feedback. The former `scraper`
+and `scraper/parsing` packages forward their public entry points for compatibility.
+
+## Tests
+
+Run `go test ./...` for registry routing, provider-independent wizard generation,
+OpenAI request formatting, queue recovery, persisted drafts and parsing tests.
+For the local gallery browser fixture with Playwright/Chromium installed, set
+`$env:KF_BROWSER_TESTS = "1"` in PowerShell and run `go test ./providers/kleinanzeigen`.
+The fixture blocks external image requests.
+
+For the opt-in live ImmoScout check, set `$env:KF_LIVE_IMMOSCOUT = "1"` and run
+`go test ./providers/immoscout -run TestImmoScoutFetchListingsLiveKarlsruhe -v`.
+This fetches a bounded search result and one detail response without sending notifications.
