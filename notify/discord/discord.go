@@ -309,6 +309,12 @@ func buildListingEmbed(monitorName string, listing model.Listing, classification
 	}
 
 	embed.Fields = fields
+	if classification.VisualAssessment != "" {
+		setEmbedField(embed, fmt.Sprintf("Photos (%d analyzed)", classification.ImagesAnalyzed), classification.VisualAssessment, false)
+	}
+	if len(classification.Uncertainties) > 0 {
+		setEmbedField(embed, "To confirm", strings.Join(classification.Uncertainties, "\n"), false)
+	}
 	return embed
 }
 

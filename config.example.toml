@@ -42,12 +42,16 @@ target_phone = ""
 
 [llm]
 enabled = true
-api_key_env = "DEEPSEEK_API_KEY"
-base_url = "https://api.deepseek.com"
-model = "deepseek-chat"
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com/v1"
+model = "gpt-6-astra"
 min_score = 70
 timeout_seconds = 90
 max_retries = 2
 retry_delay_seconds = 3
 classification_concurrency = 2
 max_description_chars = 3500
+
+# 0 disables image inputs; supported range 0..32
+max_images = 8
+image_detail = "auto"

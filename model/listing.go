@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"strings"
 )
 
 type Listing struct {
@@ -74,6 +75,10 @@ func coalesce(a, b string) string {
 }
 
 type Classification struct {
+	Error            string         `json:"error,omitempty"`
+	VisualAssessment string         `json:"visual_assessment,omitempty"`
+	Uncertainties    []string       `json:"uncertainties,omitempty"`
+	ImagesAnalyzed   int            `json:"images_analyzed,omitzero"`
 	Suitable         bool           `json:"suitable"`
 	Score            int            `json:"score"`
 	Reason           string         `json:"reason"`
@@ -103,4 +108,16 @@ func AcceptedWithoutLLM(reason string) Classification {
 		Score:    100,
 		Reason:   reason,
 	}
+}
+
+// AssessmentText is shared by notification transports so visual evidence reaches the user.
+func (c Classification) AssessmentText() string {
+	parts := []string{c.Reason}
+	if c.VisualAssessment != "" {
+		parts = append(parts, "Photos: "+c.VisualAssessment)
+	}
+	if len(c.Uncertainties) > 0 {
+		parts = append(parts, "To confirm: "+strings.Join(c.Uncertainties, "; "))
+	}
+	return strings.Join(parts, "\n\n")
 }

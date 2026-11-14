@@ -31,9 +31,9 @@ func (t *TelegramNotifier) NotifyAccepted(ctx context.Context, monitor config.Mo
 	}
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.settings.BotToken())
-	
+
 	msgText := formatMessage(monitor.Name, listing, classification)
-	
+
 	payload := map[string]any{
 		"chat_id":                  t.settings.ChatID(),
 		"text":                     msgText,
@@ -49,7 +49,7 @@ func (t *TelegramNotifier) NotifyAccepted(ctx context.Context, monitor config.Mo
 	req.Header.Set("Content-Type", "application/json")
 
 	logrus.Debugf("Sending Telegram message for listing_id=%s", listing.Identity())
-	
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, err
@@ -103,7 +103,7 @@ func formatMessage(monitorName string, listing model.Listing, classification mod
 
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("Score: %d/100", classification.Score))
-	lines = append(lines, fmt.Sprintf("Einschaetzung: %s", classification.Reason))
+	lines = append(lines, fmt.Sprintf("Einschaetzung: %s", classification.AssessmentText()))
 
 	if len(classification.RedFlags) > 0 {
 		flags := classification.RedFlags

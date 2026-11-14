@@ -73,6 +73,8 @@ type ImmoScoutSettings struct {
 }
 
 type LLMSettings struct {
+	MaxImages                 int     `mapstructure:"max_images"`
+	ImageDetail               string  `mapstructure:"image_detail"`
 	Enabled                   bool    `mapstructure:"enabled"`
 	APIKeyEnv                 string  `mapstructure:"api_key_env"`
 	BaseURL                   string  `mapstructure:"base_url"`
@@ -94,7 +96,7 @@ func (l LLMSettings) APIKey() string {
 }
 
 func (l LLMSettings) ModelName() string {
-	if override := os.Getenv("DEEPSEEK_MODEL"); override != "" {
+	if override := os.Getenv("OPENAI_MODEL"); override != "" {
 		return override
 	}
 	return l.Model
@@ -161,6 +163,12 @@ func LoadConfig(path string) (*AppConfig, error) {
 	v.SetDefault("immoscout.api_base_url", "https://api.mobile.immobilienscout24.de")
 	v.SetDefault("immoscout.user_agent", "ImmoScout_27.12_26.2_._")
 	v.SetDefault("immoscout.page_size", 50)
+	v.SetDefault("llm.api_key_env", "OPENAI_API_KEY")
+	v.SetDefault("llm.base_url", "https://api.openai.com/v1")
+	v.SetDefault("llm.model", "gpt-6-astra")
+	v.SetDefault("llm.max_images", 8)
+	v.SetDefault("llm.image_detail", "auto")
+	v.SetDefault("llm.timeout_seconds", 90)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, err
@@ -185,7 +193,7 @@ func LoadConfig(path string) (*AppConfig, error) {
 	}
 
 	if cfg.LLM.SystemPrompt == "" {
-		cfg.LLM.SystemPrompt = "You classify Kleinanzeigen listings for a user. Return strict JSON with keys suitable (boolean), score (integer 0-100), reason (short string), summary (short string), red_flags (array of strings)."
+		cfg.LLM.SystemPrompt = "Assess marketplace listings against the user requirements and return the requested structured assessment."
 	}
 
 	if cfg.LLM.MaxDescriptionChars == 0 {

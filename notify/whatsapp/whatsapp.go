@@ -121,8 +121,8 @@ func (w *WhatsAppNotifier) NotifyAccepted(ctx context.Context, monitor config.Mo
 
 	msgText += fmt.Sprintf("\n%s\n\n", escape(listing.URL))
 
-	if classification.Reason != "" {
-		msgText += fmt.Sprintf("🤖 *Score %d/100*\n_%s_\n", classification.Score, escape(classification.Reason))
+	if classification.AssessmentText() != "" {
+		msgText += fmt.Sprintf("🤖 *Score %d/100*\n_%s_\n", classification.Score, escape(classification.AssessmentText()))
 	}
 
 	var targetJID types.JID

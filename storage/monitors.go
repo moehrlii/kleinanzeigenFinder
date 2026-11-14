@@ -234,7 +234,7 @@ func (r *MonitorRepository) EnqueueListings(monitor string, listings []model.Lis
 
 func (r *MonitorRepository) ListQueued(monitor string, limit int) []model.Listing {
 	var rows []ListingQueueModel
-	query := r.db.Where("monitor = ? AND status IN ?", monitor, []string{"queued", "failed"}).Order("created_at ASC")
+	query := r.db.Where("monitor = ? AND status IN ?", monitor, []string{"queued", "failed"}).Order("attempts ASC, created_at ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}

@@ -237,7 +237,11 @@ func (r *Runner) processQueuedListings(ctx context.Context, monitor config.Monit
 			continue
 		}
 
-		decision := rules.ApplyRules(listing, monitor.Rules)
+		preRules := monitor.Rules
+		if monitor.FetchDetails {
+			preRules = config.RulesConfig{}
+		}
+		decision := rules.ApplyRules(listing, preRules)
 		if !decision.Accepted {
 			logrus.Infof("[%s] Rules rejected id=%s: %s", monitor.Name, listing.Identity(), decision.Reasons[0])
 			stats.Rejected++
@@ -289,6 +293,12 @@ func (r *Runner) processQueuedListings(ctx context.Context, monitor config.Monit
 		logrus.Infof("[%s] LLM result id=%s: suitable=%v score=%d reason=%q",
 			monitor.Name, listing.Identity(), classification.Suitable, classification.Score, classification.Reason)
 
+		if classification.Error != "" {
+			logrus.Warnf("[%s] Assessment pending for %s: %s", monitor.Name, listing.Identity(), classification.Error)
+			r.monRepo.MarkQueuedFailed(monitor.Name, listing.Identity())
+			stats.Errors++
+			continue
+		}
 		if !classification.Suitable {
 			logrus.Infof("[%s] LLM rejected id=%s (score=%d)", monitor.Name, listing.Identity(), classification.Score)
 			stats.Rejected++

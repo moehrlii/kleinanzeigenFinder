@@ -59,7 +59,7 @@ var runCmd = &cobra.Command{
 			activeProviders[definition.ID] = instance
 		}
 
-		cls, err := llm.NewClassifier(appCfg.LLM)
+		cls, err := llm.NewClassifierWithProviders(appCfg.LLM, catalog)
 		if err != nil {
 			return fmt.Errorf("could not init classifier: %w", err)
 		}
