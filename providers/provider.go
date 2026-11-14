@@ -31,6 +31,7 @@ type Definition struct {
 
 // Settings supplies the configuration needed to initialize registered marketplaces.
 type Settings struct {
+	Ebay      config.EbaySettings
 	Browser   config.ScraperSettings
 	ImmoScout config.ImmoScoutSettings
 }

@@ -11,7 +11,8 @@ func TestBuiltinResolution(t *testing.T) {
 		{name: "default", want: "kleinanzeigen"},
 		{name: "search URL", url: "https://www.kleinanzeigen.de/s-wohnung/k0", want: "kleinanzeigen"},
 		{name: "legacy", id: NormalizePlatform(""), url: "https://www.kleinanzeigen.de/s-wohnung/k0", want: "kleinanzeigen"},
-		{name: "planned eBay", url: "https://www.ebay.de/sch/i.html", errorText: "not implemented"},
+		{name: "eBay Germany", url: "https://www.ebay.de/sch/i.html", want: "ebay"},
+		{name: "eBay US", url: "https://www.ebay.com/sch/293/i.html?_nkw=lego", want: "ebay"},
 		{name: "ImmoScout", id: "immoscout", want: "immoscout"},
 		{name: "ImmoScout URL", url: "https://www.immobilienscout24.de/Suche/de/berlin/berlin/wohnung-mieten", want: "immoscout"},
 		{name: "ImmoScout API URL", url: "https://api.mobile.immobilienscout24.de/search/list?realestatetype=apartmentrent", want: "immoscout"},
@@ -35,7 +36,7 @@ func TestBuiltinResolution(t *testing.T) {
 			}
 		})
 	}
-	if got := registry.Available(); len(got) != 2 || got[0].ID != "kleinanzeigen" || got[1].ID != "immoscout" {
+	if got := registry.Available(); len(got) != 3 || got[0].ID != "kleinanzeigen" || got[1].ID != "immoscout" || got[2].ID != "ebay" {
 		t.Fatalf("unexpected active providers %+v", got)
 	}
 }

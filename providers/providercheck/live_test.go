@@ -27,10 +27,12 @@ import (
 var probeJSON []byte
 
 type probe struct {
-	ID        string `json:"id"`
-	Browser   bool   `json:"browser"`
-	SearchURL string `json:"search_url"`
-	IDPattern string `json:"id_pattern"`
+	// eBay domestic search cards may omit location; rental search cards must include it.
+	SearchLocationOptional bool   `json:"search_location_optional"`
+	ID                     string `json:"id"`
+	Browser                bool   `json:"browser"`
+	SearchURL              string `json:"search_url"`
+	IDPattern              string `json:"id_pattern"`
 }
 
 func probes(t *testing.T) []probe {
@@ -68,19 +70,20 @@ func TestLiveProbeCoverage(t *testing.T) {
 }
 
 type report struct {
-	Provider         string    `json:"provider"`
-	Started          time.Time `json:"started"`
-	DurationSeconds  float64   `json:"duration_seconds"`
-	Outcome          string    `json:"outcome"`
-	Stage            string    `json:"stage"`
-	Kind             string    `json:"kind,omitempty"`
-	Message          string    `json:"message,omitempty"`
-	HTTPStatus       int       `json:"http_status,omitzero"`
-	Listings         int       `json:"listings"`
-	DetailsAttempted int       `json:"details_attempted"`
-	RemovedListings  int       `json:"removed_listings"`
-	DescriptionChars int       `json:"description_chars"`
-	GalleryImages    int       `json:"gallery_images"`
+	Access           *health.AccessDiagnostics `json:"access,omitempty"`
+	Provider         string                    `json:"provider"`
+	Started          time.Time                 `json:"started"`
+	DurationSeconds  float64                   `json:"duration_seconds"`
+	Outcome          string                    `json:"outcome"`
+	Stage            string                    `json:"stage"`
+	Kind             string                    `json:"kind,omitempty"`
+	Message          string                    `json:"message,omitempty"`
+	HTTPStatus       int                       `json:"http_status,omitzero"`
+	Listings         int                       `json:"listings"`
+	DetailsAttempted int                       `json:"details_attempted"`
+	RemovedListings  int                       `json:"removed_listings"`
+	DescriptionChars int                       `json:"description_chars"`
+	GalleryImages    int                       `json:"gallery_images"`
 }
 
 func TestLiveProviders(t *testing.T) {
@@ -135,6 +138,7 @@ func runLiveProbe(t *testing.T, p probe) {
 		r.Kind, r.Message = "network_or_runtime", err.Error()
 		if failure, ok := errors.AsType[*health.Failure](err); ok {
 			r.Kind, r.HTTPStatus = failure.Kind, failure.Status
+			r.Access = failure.Access
 		}
 		t.Fatal(err)
 	}
@@ -155,7 +159,7 @@ func runLiveProbe(t *testing.T, p probe) {
 		}
 	})
 	r.Stage = "search"
-	// A broad rental search avoids dependence on one listing surviving until next week.
+	// A broad search avoids dependence on one listing surviving until next week.
 	listings, err := provider.FetchListingsPages(p.SearchURL, 5, 1)
 	if err != nil {
 		fail(err)
@@ -206,7 +210,7 @@ func runLiveProbe(t *testing.T, p probe) {
 func validateSearch(p probe, hosts []string, listings []model.Listing) error {
 	invalid := func(message string) error { return health.Contract(p.ID, "search", message) }
 	if len(listings) == 0 || len(listings) > 5 {
-		return invalid("expected 1..5 listings from the broad rental search")
+		return invalid("expected 1..5 listings from the broad search")
 	}
 	pattern, err := regexp.Compile(p.IDPattern)
 	if err != nil {
@@ -229,8 +233,11 @@ func validateSearch(p probe, hosts []string, listings []model.Listing) error {
 		priced = priced || (listing.PriceAmount != nil && *listing.PriceAmount > 0)
 		located = located || strings.TrimSpace(listing.Location) != ""
 	}
-	if !priced || !located {
-		return invalid("no parsed rent or location in the sampled search results")
+	if !priced {
+		return invalid("no parsed price in the sampled search results")
+	}
+	if !located && !p.SearchLocationOptional {
+		return invalid("no parsed location in the sampled search results")
 	}
 	return nil
 }

@@ -10,5 +10,12 @@
     "browser": false,
     "search_url": "https://www.immobilienscout24.de/Suche/de/berlin/berlin/wohnung-mieten",
     "id_pattern": "^is24:[0-9]+$"
+  },
+  {
+    "id": "ebay",
+    "search_location_optional": true,
+    "browser": true,
+    "search_url": "https://www.ebay.de/sch/i.html?_nkw=lego+technic&LH_BIN=1&_sop=10",
+    "id_pattern": "^ebay:[0-9]{9,15}$"
   }
 ]

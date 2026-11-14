@@ -127,6 +127,42 @@ func TestDraftRetainsRequirementsAndRules(t *testing.T) {
 	}
 }
 
+func TestEbayWizardUsesMarketplaceRules(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Instructions string `json:"instructions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		for _, requirement := range []string{"Marketplace: eBay", "LH_BIN=1", "auction", "Shipping", "stock images", "local rules null"} {
+			if !strings.Contains(body.Instructions, requirement) {
+				t.Errorf("missing eBay instruction %q", requirement)
+			}
+		}
+		response(w, `{"name":"lego","search_url":"https://www.ebay.de/sch/i.html?_nkw=lego&_sop=10&LH_BIN=1&_udhi=100","criteria":"Complete used set under EUR 100; inspect images for missing parts","max_price":null}`)
+	}))
+	defer server.Close()
+	c, err := NewClassifier(config.LLMSettings{Enabled: true, BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provided := "https://www.ebay.com/sch/i.html?_nkw=lego&LH_BIN=1&_udhi=100"
+	for _, raw := range []string{"", provided} {
+		draft, err := c.DraftMonitorForPlatform(t.Context(), "ebay", "Complete LEGO set under 100; verify all pieces in photos", raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if draft.Platform != "ebay" || !draft.FetchDetails || draft.Rules.MaxPrice != nil || !strings.Contains(draft.Criteria, "verify all pieces") {
+			t.Fatalf("invalid draft: %+v", draft)
+		}
+		if raw != "" && draft.SearchURL != raw {
+			t.Fatal("supplied URL filters were replaced")
+		}
+	}
+}
+
 func TestUnusableResponsesStayPending(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	cases := map[string]string{

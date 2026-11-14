@@ -51,7 +51,7 @@ var runCmd = &cobra.Command{
 		catalog := providers.DefaultRegistry()
 		activeProviders := make(map[string]providers.Provider)
 		for _, definition := range catalog.Available() {
-			instance, err := definition.Open(providers.Settings{Browser: appCfg.Scraper, ImmoScout: appCfg.ImmoScout})
+			instance, err := definition.Open(providers.Settings{Browser: appCfg.Scraper, ImmoScout: appCfg.ImmoScout, Ebay: appCfg.Ebay})
 			if err != nil {
 				return fmt.Errorf("could not initialize %s: %w", definition.Name, err)
 			}

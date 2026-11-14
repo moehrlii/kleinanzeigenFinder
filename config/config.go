@@ -72,6 +72,12 @@ type ImmoScoutSettings struct {
 	PageSize   int    `mapstructure:"page_size"`
 }
 
+type EbaySettings struct {
+	BrowserExecutable string `mapstructure:"browser_executable"`
+	ProfileDir        string `mapstructure:"profile_dir"`
+	Headless          bool   `mapstructure:"headless"`
+}
+
 type LLMSettings struct {
 	MaxImages                 int     `mapstructure:"max_images"`
 	ImageDetail               string  `mapstructure:"image_detail"`
@@ -143,6 +149,7 @@ type WhatsAppSettings struct {
 }
 
 type AppConfig struct {
+	Ebay      EbaySettings      `mapstructure:"ebay"`
 	ImmoScout ImmoScoutSettings `mapstructure:"immoscout"`
 	App       AppSettings       `mapstructure:"app"`
 	Logging   LoggingSettings   `mapstructure:"logging"`
@@ -163,6 +170,7 @@ func LoadConfig(path string) (*AppConfig, error) {
 	v.SetDefault("immoscout.api_base_url", "https://api.mobile.immobilienscout24.de")
 	v.SetDefault("immoscout.user_agent", "ImmoScout_27.12_26.2_._")
 	v.SetDefault("immoscout.page_size", 50)
+	v.SetDefault("ebay.profile_dir", "data/ebay-browser")
 	v.SetDefault("llm.api_key_env", "OPENAI_API_KEY")
 	v.SetDefault("llm.base_url", "https://api.openai.com/v1")
 	v.SetDefault("llm.model", "gpt-6-astra")

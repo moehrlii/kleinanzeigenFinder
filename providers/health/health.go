@@ -4,15 +4,27 @@ package health
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Failure distinguishes access restrictions from changes to an upstream contract.
 type Failure struct {
-	Provider  string `json:"provider"`
-	Operation string `json:"operation"`
-	Kind      string `json:"kind"`
-	Status    int    `json:"http_status,omitzero"`
-	Detail    string `json:"detail"`
+	Access    *AccessDiagnostics `json:"access,omitempty"`
+	Provider  string             `json:"provider"`
+	Operation string             `json:"operation"`
+	Kind      string             `json:"kind"`
+	Status    int                `json:"http_status,omitzero"`
+	Detail    string             `json:"detail"`
+}
+
+// AccessDiagnostics contains only non-secret transport metadata. Never include
+// cookies, authorization headers, full response bodies, or browser profile data.
+type AccessDiagnostics struct {
+	Server         string    `json:"server,omitempty"`
+	Reference      string    `json:"reference,omitempty"`
+	BrowserVersion string    `json:"browser_version,omitempty"`
+	Runtime        string    `json:"runtime,omitempty"`
+	RetryAt        time.Time `json:"retry_at,omitzero"`
 }
 
 func (f *Failure) Error() string {

@@ -19,6 +19,15 @@ api_base_url = "https://api.mobile.immobilienscout24.de"
 user_agent = "ImmoScout_27.12_26.2_._"
 page_size = 50
 
+[ebay]
+# Separate Chrome process, native user agent, isolated session. Linux needs DISPLAY.
+headless = false
+# Optional installed Chrome/Chromium executable; otherwise detected automatically.
+browser_executable = ""
+# Dedicated application profile only; never point this at your personal Chrome profile.
+# Empty uses a temporary profile. This path preserves the browser session across runs.
+profile_dir = "data/ebay-browser"
+
 [telegram]
 enabled = true
 bot_token_env = "TELEGRAM_BOT_TOKEN"

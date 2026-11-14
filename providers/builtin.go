@@ -30,7 +30,11 @@ func DefaultRegistry() *Registry {
 			ValidateSearchURL: immoscout.ValidateSearchURL, DraftInstructions: immoscout.DraftInstructions,
 			Open: func(cfg Settings) (ManagedProvider, error) { return immoscout.New(cfg.ImmoScout), nil },
 		},
-		Definition{ID: ebay.ID, Name: ebay.Name, Hosts: []string{"www.ebay.de", "ebay.de", "www.ebay.com", "ebay.com"}},
+		Definition{
+			ID: ebay.ID, Name: ebay.Name, Hosts: []string{"www.ebay.de", "ebay.de", "www.ebay.com", "ebay.com"},
+			ValidateSearchURL: ebay.ValidateSearchURL, DraftInstructions: ebay.DraftInstructions,
+			Open: func(cfg Settings) (ManagedProvider, error) { return ebay.New(cfg.Browser, cfg.Ebay), nil },
+		},
 		Definition{ID: wggesucht.ID, Name: wggesucht.Name, Hosts: []string{"www.wg-gesucht.de", "wg-gesucht.de"}},
 	)
 	// A failure here is a programmer error in the built-in catalog.
