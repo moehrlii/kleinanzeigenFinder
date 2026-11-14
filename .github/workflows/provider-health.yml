@@ -1,0 +1,135 @@
+name: Provider health
+
+on:
+  schedule:
+    # Monday 05:23 UTC (06:23 CET / 07:23 CEST), away from the top of the hour.
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'providers/**'
+      - '.github/workflows/provider-health.yml'
+  pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'providers/**'
+      - '.github/workflows/provider-health.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-health-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  regression:
+    name: Offline provider regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      KF_BROWSER_TESTS: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install the Playwright version from go.mod
+        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+      - name: Run regressions without live marketplace requests
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          go test -count=1 -timeout=5m -json ./... | tee artifacts/regression.jsonl
+      - name: Save regression results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-regressions
+          path: artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
+  matrix:
+    name: Discover live probes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      probes: ${{ steps.probes.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - id: probes
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open('providers/providercheck/probes.json') as source:
+              probes = json.load(source)
+          assert probes, 'No live probes configured'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('matrix=' + json.dumps({'include': probes}), file=output)
+          PY
+
+  live:
+    name: Live ${{ matrix.id }}
+    needs: matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.matrix.outputs.probes) }}
+    env:
+      KF_LIVE_PROVIDERS: '1'
+      KF_LIVE_PROVIDER: ${{ matrix.id }}
+      KF_PROVIDER_REPORT_DIR: ${{ github.workspace }}/artifacts
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install Chromium when required
+        if: matrix.browser
+        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+      - name: Check live search, details, and gallery
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          go test -count=1 -timeout=5m -json ./providers/providercheck -run '^TestLiveProviders$' | tee artifacts/live.jsonl
+      - name: Summarize provider health
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import html, json, os, pathlib
+          report = pathlib.Path(os.environ['KF_PROVIDER_REPORT_DIR']) / (os.environ['KF_LIVE_PROVIDER'] + '.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              if report.exists():
+                  data = json.loads(report.read_text())
+                  print('## ' + html.escape(data['provider']) + ': ' + data['outcome'], file=summary)
+                  print('<pre>' + html.escape(json.dumps(data, indent=2)) + '</pre>', file=summary)
+              else:
+                  print('No completed probe report. Check setup/timeout failures in the job log.', file=summary)
+          PY
+      - name: Save health diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-health-${{ matrix.id }}
+          path: artifacts/
+          retention-days: 30
+          if-no-files-found: warn
