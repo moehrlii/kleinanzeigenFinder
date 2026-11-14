@@ -72,6 +72,7 @@ var runCmd = &cobra.Command{
 		var disc *discord.DiscordNotifier
 		var bot *discord.Bot
 		if appCfg.Discord.Enabled {
+			logrus.Info("Starting Discord bot...")
 			disc, err = discord.NewDiscordNotifier(appCfg.Discord, monRepo)
 			if err != nil {
 				logrus.Warnf("Could not init Discord notifier: %v", err)
@@ -83,6 +84,8 @@ var runCmd = &cobra.Command{
 					defer bot.Stop()
 				}
 			}
+		} else {
+			logrus.Info("Discord bot disabled by configuration (discord.enabled=false)")
 		}
 
 		var wa *whatsapp.WhatsAppNotifier
