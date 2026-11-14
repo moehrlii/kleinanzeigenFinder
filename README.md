@@ -1,6 +1,6 @@
 # KleinanzeigenFinder
 
-KleinanzeigenFinder überwacht Kleinanzeigen- und ImmoScout24-Such-URLs, sammelt neue Anzeigen ein, lädt bei Bedarf die Detailseiten, bewertet die Anzeigen per LLM und verschickt passende Treffer an Discord, Telegram oder WhatsApp.
+KleinanzeigenFinder überwacht Kleinanzeigen-, ImmoScout24- und eBay-Such-URLs, sammelt neue Anzeigen ein, lädt bei Bedarf die Detailseiten, bewertet die Anzeigen per LLM und verschickt passende Treffer an Discord, Telegram oder WhatsApp.
 
 ## Funktionen
 
@@ -280,6 +280,79 @@ warm rent, attributes, description and gallery URLs for OpenAI assessment. Place
 images are excluded from the gallery. The integration depends on the mobile API's
 response format and availability.
 
+## eBay
+
+The eBay provider supports public searches on **ebay.de and ebay.com**, including
+category searches, existing URL filters, pagination, Buy It Now and auction listings.
+Paste a `/sch/i.html` or `/sch/<category>/i.html` URL into the monitor form or AI wizard.
+For example:
+
+```text
+https://www.ebay.de/sch/i.html?_nkw=lego+technic&LH_BIN=1&_udhi=150&_sop=10
+```
+
+The AI wizard has eBay-specific search instructions. Text-only callers can select
+`DraftMonitorForPlatform(..., "ebay", ...)`; providing an eBay URL selects it automatically.
+Listings use stable `ebay:<item-number>` IDs. Tracking parameters are removed while
+selected variation IDs are retained. Search cards, seller descriptions (including
+cross-origin description frames), condition, item specifics, shipping information,
+seller names and deduplicated gallery images feed the existing rules, OpenAI visual
+assessment and notification pipeline. Domestic search cards sometimes omit location;
+the detail page supplies it when present. Related/fuzzy matches are excluded.
+
+Prices use the **displayed currency without conversion**. Numeric rules compare item
+prices, excluding shipping and import costs. A range uses its lowest displayed price;
+an auction uses its current bid. An international item's detail page may use a different
+currency from its search card. Prefer search URL price bounds and explicit AI budget
+criteria; the wizard is instructed to leave local numeric price rules unset for eBay.
+Only configure local numeric rules manually when all relevant prices use the intended
+currency. The listing attributes retain currency and price qualifications.
+Put delivered-budget, variant, authenticity and condition requirements in AI criteria.
+Stock photographs cannot establish the condition of an individual used item.
+
+```toml
+[ebay]
+headless = false
+browser_executable = ""       # Auto-detect Chrome; fall back to Playwright Chromium
+profile_dir = "data/ebay-browser" # Optional, dedicated application profile
+```
+
+eBay uses a separately launched Chrome process and attaches over a loopback CDP port.
+It keeps Chrome's native user agent and headers, avoids the usual automated-launch
+flags, serializes requests through one tab and respects `scraper.detail_delay_seconds`.
+In local investigation, the automated launch returned 403 for details; this launch
+mode completed search and detail navigation after eBay's transient browser check.
+It does not guarantee access from every IP or future browser version. Later auction
+and Linux container probes still encountered HTTP 403, including with current Chrome
+and a changed user agent. Access reliability remains a limitation, not a passing health
+check. An interactive CAPTCHA, rate limit or access denial starts a 15-minute session
+cooldown shared by all eBay monitors; calls during it fail without sending requests.
+A longer upstream `Retry-After` extends this cooldown. Health reports retain the
+server name, browser version, operating system, next retry time and, when present,
+the Akamai request reference, without retaining response bodies or cookies.
+
+The [hosted Linux and Docker diagnostic run](https://github.com/moehrlii/kleinanzeigenFinder/actions/runs/43601586624)
+also received `403` from `AkamaiGHost` before any listings loaded in both environments.
+Its successful workflow conclusion only means diagnostics were collected. Fresh local
+Windows sessions were subsequently blocked too, while the user's established browser
+could still open the homepage. This does not identify the exact access-policy trigger,
+and changing the user agent or warming a fresh session has not established reliable access.
+Production Browse API access is a possible alternative, subject to eBay's approval;
+it is not implemented by this browser provider.
+
+The eBay browser starts only when an eBay monitor is used. `ebay.headless` is separate
+from `scraper.headless`; headed mode is the default because launch behavior affects
+access. Windows/macOS open a browser window. On Linux use `xvfb-run -a` when no display
+is available; Docker and the health workflow supply the virtual display automatically.
+No eBay API key or marketplace account is required.
+
+Application configuration defaults `profile_dir` to `data/ebay-browser`. Explicitly
+setting it empty creates a temporary session that is removed on shutdown. A
+dedicated directory preserves cookies across runs and has an ownership lock to prevent
+simultaneous use. Never use your personal Chrome profile. If the process crashes,
+stop its browser before removing a stale `kf-provider.lock` from the dedicated directory.
+Cookies/profile data belong under ignored `data/`, never in Git or CI artifacts.
+
 ## Modular providers
 
 Marketplace implementations live under `providers/`.
@@ -290,7 +363,7 @@ Marketplace implementations live under `providers/`.
 | `providers/kleinanzeigen/parsing` | Kleinanzeigen listing IDs and compatibility access to value parsing | Implemented |
 | `providers/parsing` | Shared German price, room-count and area parsing | Implemented |
 | `providers/immoscout` | Mobile API discovery, URL translation, listing details and gallery extraction | Implemented |
-| `providers/ebay` | eBay integration | Reserved for implementation |
+| `providers/ebay` | Native Chrome lifecycle, eBay search/pagination, details, galleries and AI search instructions | Implemented |
 | `providers/wggesucht` | WG-Gesucht integration | Reserved for implementation |
 | `providers` | Shared interfaces, registry, built-in registrations and legacy platform identity | Implemented |
 
@@ -321,8 +394,10 @@ and `scraper/parsing` packages forward their public entry points for compatibili
 Run `go test ./...` for registry routing, provider-independent wizard generation,
 OpenAI request formatting, queue recovery, persisted drafts and parsing tests.
 For the local gallery browser fixture with Playwright/Chromium installed, set
-`$env:KF_BROWSER_TESTS = "1"` in PowerShell and run `go test ./providers/kleinanzeigen`.
-The fixture blocks external image requests.
+`$env:KF_BROWSER_TESTS = "1"` in PowerShell and run `go test ./providers/kleinanzeigen ./providers/ebay`.
+On Linux wrap the command with `xvfb-run -a` for the eBay native-launch regression.
+Fixtures intercept marketplace requests; the launch regression checks browser identity
+and profile ownership without visiting a marketplace.
 
 ### Weekly provider health checks
 
@@ -346,10 +421,16 @@ The workflow has two layers:
   removed offers, and server errors. Intercepted Chromium fixtures exercise
   Kleinanzeigen search cards, pagination limits, exclusion of recommendations,
   descriptions, rent and gallery extraction, visible challenges, hidden CAPTCHA
-  widgets, and malformed detail pages. Fixture requests never reach a marketplace.
+  widgets, and malformed detail pages. eBay fixtures cover modern/legacy cards,
+  variations, auction prices, currency, description frames, image deduplication,
+  pagination, empty searches, related results and access failures. The native launch
+  regression also verifies `navigator.webdriver`, profile locking and clean shutdown.
+  Fixture requests never reach a marketplace.
 - **Live probes:** separate jobs open each implemented provider through the production
-  registry. Each probe fetches one broad Berlin rental search page (at most five
-  normalized listings), validates IDs, URLs, titles, rent and location, and checks
+  registry. Each probe fetches one broad search page (Berlin rentals or eBay LEGO,
+  at most five normalized listings), validates IDs, URLs, titles and prices, and checks
+  locations for rental searches. eBay search location is optional because domestic
+  cards can omit it. Each probe checks
   up to three fresh details. Search snippets and thumbnails are cleared before
   fetching details so they cannot mask a broken extractor. At least one sampled
   detail must return a description and gallery. The probe reads the first 512 bytes
@@ -360,7 +441,8 @@ limits, unavailable endpoints, unexpected HTTP statuses, and changed data contra
 have distinct error categories. Unknown failures remain `network_or_runtime`;
 a missing field or empty search indicates a possible upstream change, not proof
 that the API was redesigned. Access blocks are reported immediately, without
-automated retries or challenge solving. A detail that returns 404/410 is allowed
+automated retries or interactive challenge solving. eBay waits for a transient browser
+check to finish within the navigation timeout. A detail that returns 404/410 is allowed
 to fall out of the bounded sample because listings can disappear between requests.
 If the whole sample lacks detail text or photos, the probe fails for investigation.
 
@@ -382,7 +464,7 @@ go test -count=1 -timeout=5m ./...
 
 $env:KF_LIVE_PROVIDERS = "1"
 $env:KF_PROVIDER_REPORT_DIR = Join-Path (Get-Location) "artifacts"
-# Optional: restrict the live run to "kleinanzeigen" or "immoscout".
+# Optional: restrict the live run to "kleinanzeigen", "immoscout" or "ebay".
 # $env:KF_LIVE_PROVIDER = "immoscout"
 go test -count=1 -timeout=5m -v ./providers/providercheck -run '^TestLiveProviders$'
 Remove-Item Env:KF_LIVE_PROVIDERS
@@ -394,12 +476,12 @@ Use `-count=1` to prevent Go from reusing a cached successful live result. A nor
 ImmoScout check remains available through `KF_LIVE_IMMOSCOUT=1`.
 
 `providers/providercheck/probes.json` is the single source for the live CI matrix
-and search fixtures. When implementing eBay, WG-Gesucht or another marketplace,
+and search fixtures. When implementing WG-Gesucht or another marketplace,
 add its probe with a broad stable search, ID pattern and browser requirement,
 adapt the sampled content checks to its listing type, and add offline API/HTML
 fixtures in its package. `TestLiveProbeCoverage` fails if an implemented provider
 has no probe or a probe points to a missing/planned provider. The currently reserved
-eBay and WG-Gesucht integrations are not reported as healthy.
+WG-Gesucht integration is not reported as healthy.
 
 The workflow must be pushed to the repository's default branch for scheduled runs.
 GitHub can delay scheduled jobs, and public repositories can have schedules disabled
