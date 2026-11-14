@@ -11,7 +11,7 @@ import (
 	"github.com/Kamuyin/kleinanzeigenFinder/config"
 	"github.com/Kamuyin/kleinanzeigenFinder/model"
 	"github.com/Kamuyin/kleinanzeigenFinder/providers/health"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 func fixtureProvider(t *testing.T, handler func(playwright.Route)) *KleinanzeigenScraper {

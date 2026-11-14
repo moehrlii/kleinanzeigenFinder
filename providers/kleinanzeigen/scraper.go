@@ -9,7 +9,7 @@ import (
 	"github.com/Kamuyin/kleinanzeigenFinder/model"
 	"github.com/Kamuyin/kleinanzeigenFinder/providers/health"
 	"github.com/Kamuyin/kleinanzeigenFinder/providers/kleinanzeigen/parsing"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/sirupsen/logrus"
 )
 

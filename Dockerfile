@@ -9,8 +9,8 @@ FROM golang:${GO_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY --from=deps /go/pkg /go/pkg
 COPY . .
-RUN PWGO_VER="$(go list -m -f '{{.Version}}' github.com/playwright-community/playwright-go)" \
-    && go install github.com/playwright-community/playwright-go/cmd/playwright@${PWGO_VER}
+RUN PWGO_VER="$(go list -m -f '{{.Version}}' github.com/mxschmitt/playwright-go)" \
+    && go install github.com/mxschmitt/playwright-go/cmd/playwright@${PWGO_VER}
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/kleinanzeigen-finder .
 
 FROM ubuntu:noble AS runtime

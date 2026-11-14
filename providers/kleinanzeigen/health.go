@@ -2,7 +2,7 @@ package kleinanzeigen
 
 import (
 	"github.com/Kamuyin/kleinanzeigenFinder/providers/health"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // Inspect visible challenge UI only. Merely loading a CAPTCHA script, or mentioning

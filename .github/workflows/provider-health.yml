@@ -46,7 +46,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install the Playwright version from go.mod
-        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
       - name: Run regressions without live marketplace requests
         run: |
           mkdir -p artifacts
@@ -105,7 +105,7 @@ jobs:
           go-version-file: go.mod
       - name: Install Chromium when required
         if: matrix.browser
-        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
       - name: Check live search, details, and gallery
         run: |
           mkdir -p artifacts
