@@ -1,0 +1,14 @@
+[
+  {
+    "id": "kleinanzeigen",
+    "browser": true,
+    "search_url": "https://www.kleinanzeigen.de/s-wohnung-mieten/berlin/c203l3331",
+    "id_pattern": "^[0-9]+$"
+  },
+  {
+    "id": "immoscout",
+    "browser": false,
+    "search_url": "https://www.immobilienscout24.de/Suche/de/berlin/berlin/wohnung-mieten",
+    "id_pattern": "^is24:[0-9]+$"
+  }
+]
