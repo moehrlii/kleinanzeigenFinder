@@ -1,0 +1,46 @@
+name: eBay access diagnostics
+
+on:
+  push:
+    branches: [codex/ebay-access-diagnostics]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_GC: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Install browser runtime
+        run: |
+          go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
+          sudo apt-get install -y xauth
+          mkdir -p artifacts
+      - name: Native Chrome request
+        run: |
+          export DIAG_CHROME="$(command -v google-chrome)"
+          xvfb-run -a go run ./.github/diagnostics/ebay | tee artifacts/native.txt
+      - name: Build the Docker runtime
+        run: docker build -f .github/diagnostics/ebay/Dockerfile -t ebay-diagnostic .
+      - name: Docker request
+        run: |
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/ebay-diagnostic" ./.github/diagnostics/ebay
+          docker run --rm --shm-size=1g --entrypoint tini \
+            --mount "type=bind,source=$RUNNER_TEMP/ebay-diagnostic,target=/diagnostic,readonly" \
+            ebay-diagnostic -g -- xvfb-run -a /diagnostic | tee artifacts/docker.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ebay-access-diagnostics
+          path: artifacts/*.txt
+          retention-days: 7
