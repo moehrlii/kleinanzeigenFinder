@@ -7,6 +7,7 @@ import (
 
 	"github.com/Kamuyin/kleinanzeigenFinder/config"
 	"github.com/Kamuyin/kleinanzeigenFinder/model"
+	"github.com/Kamuyin/kleinanzeigenFinder/providers/health"
 	"github.com/Kamuyin/kleinanzeigenFinder/providers/kleinanzeigen/parsing"
 	"github.com/playwright-community/playwright-go"
 	"github.com/sirupsen/logrus"
@@ -109,10 +110,17 @@ func (s *KleinanzeigenScraper) FetchListingsPages(searchURL string, maxResults, 
 		pageCount++
 		logrus.Debugf("Fetching page %d: %s", pageCount, currentURL)
 
-		if _, err := page.Goto(currentURL, playwright.PageGotoOptions{
+		response, err := page.Goto(currentURL, playwright.PageGotoOptions{
 			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 			Timeout:   playwright.Float(float64(s.config.TimeoutMS)),
-		}); err != nil {
+		})
+		if err != nil {
+			return listings, err
+		}
+		if response == nil {
+			return listings, health.Contract(ID, "search", "navigation returned no HTTP response")
+		}
+		if err := checkPageAccess(page, response.Status(), "search"); err != nil {
 			return listings, err
 		}
 
@@ -130,6 +138,9 @@ func (s *KleinanzeigenScraper) FetchListingsPages(searchURL string, maxResults, 
 			})
 		}
 
+		if err := checkPageAccess(page, response.Status(), "search"); err != nil {
+			return listings, err
+		}
 		rawOutput, err := page.Evaluate(CardExtractScript)
 		if err != nil {
 			return listings, err
@@ -137,12 +148,12 @@ func (s *KleinanzeigenScraper) FetchListingsPages(searchURL string, maxResults, 
 
 		outputMap, ok := rawOutput.(map[string]interface{})
 		if !ok {
-			break
+			return listings, health.Contract(ID, "search", "extractor returned a non-object")
 		}
 
 		itemsArray, ok := outputMap["listings"].([]interface{})
 		if !ok {
-			break
+			return listings, health.Contract(ID, "search", "extractor omitted the listings array")
 		}
 
 		nextPageStr := ""
@@ -198,10 +209,17 @@ func (s *KleinanzeigenScraper) FetchDetail(listing model.Listing) (model.Listing
 	}
 	defer page.Close()
 
-	if _, err := page.Goto(listing.URL, playwright.PageGotoOptions{
+	response, err := page.Goto(listing.URL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(float64(s.config.TimeoutMS)),
-	}); err != nil {
+	})
+	if err != nil {
+		return listing, err
+	}
+	if response == nil {
+		return listing, health.Contract(ID, "detail", "navigation returned no HTTP response")
+	}
+	if err := checkPageAccess(page, response.Status(), "detail"); err != nil {
 		return listing, err
 	}
 
@@ -211,6 +229,9 @@ func (s *KleinanzeigenScraper) FetchDetail(listing model.Listing) (model.Listing
 		Timeout: playwright.Float(6000),
 	})
 
+	if err := checkPageAccess(page, response.Status(), "detail"); err != nil {
+		return listing, err
+	}
 	raw, err := page.Evaluate(DetailExtractScript)
 	if err != nil {
 		return listing, err
@@ -218,11 +239,14 @@ func (s *KleinanzeigenScraper) FetchDetail(listing model.Listing) (model.Listing
 
 	rawMap, ok := raw.(map[string]interface{})
 	if ok {
+		if strOrEmpty(rawMap["title"]) == "" || strOrEmpty(rawMap["id"]) == "" {
+			return listing, health.Contract(ID, "detail", "listing title or identity missing from detail page")
+		}
 		detail := s.listingFromRaw(rawMap)
 		detail.DetailLoaded = true
 		return listing.MergedWith(detail), nil
 	}
-	return listing, nil
+	return listing, health.Contract(ID, "detail", "extractor returned a non-object")
 }
 
 func (s *KleinanzeigenScraper) waitBeforeDetailRequest() {

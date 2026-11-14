@@ -2,10 +2,8 @@ package immoscout
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"html"
-	"io"
 	"maps"
 	"net/http"
 	"net/url"
@@ -210,12 +208,8 @@ func (s *ImmoScout) FetchDetail(listing model.Listing) (model.Listing, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		return listing, fmt.Errorf("ImmoScout detail API returned HTTP %d", resp.StatusCode)
-	}
-
 	var payload immoScoutExposeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := decodeResponse(resp, "detail", "sections", &payload); err != nil {
 		return listing, err
 	}
 
@@ -325,13 +319,8 @@ func (s *ImmoScout) fetchList(apiURL string) (immoScoutListResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return immoScoutListResponse{}, fmt.Errorf("ImmoScout list API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-
 	var payload immoScoutListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := decodeResponse(resp, "search", "resultListItems", &payload); err != nil {
 		return immoScoutListResponse{}, err
 	}
 	return payload, nil

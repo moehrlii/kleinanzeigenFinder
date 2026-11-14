@@ -58,8 +58,8 @@ const CardExtractScript = `
 
   const cards = cutoffNode
     ? allCards.filter(card => {
-        // Node.DOCUMENT_POSITION_FOLLOWING means cutoffNode comes after card → card is before cutoff
-        return cutoffNode.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING;
+        // Keep cards whose following sibling/section is the recommendation heading.
+        return card.compareDocumentPosition(cutoffNode) & Node.DOCUMENT_POSITION_FOLLOWING;
       })
     : allCards;
 
