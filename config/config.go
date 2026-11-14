@@ -66,6 +66,12 @@ type ScraperSettings struct {
 	UserAgent          string  `mapstructure:"user_agent"`
 }
 
+type ImmoScoutSettings struct {
+	APIBaseURL string `mapstructure:"api_base_url"`
+	UserAgent  string `mapstructure:"user_agent"`
+	PageSize   int    `mapstructure:"page_size"`
+}
+
 type LLMSettings struct {
 	Enabled                   bool    `mapstructure:"enabled"`
 	APIKeyEnv                 string  `mapstructure:"api_key_env"`
@@ -112,6 +118,7 @@ type RulesConfig struct {
 }
 
 type MonitorConfig struct {
+	Platform                string      `mapstructure:"platform"`
 	Name                    string      `mapstructure:"name"`
 	SearchURL               string      `mapstructure:"search_url"`
 	Criteria                string      `mapstructure:"criteria"`
@@ -134,13 +141,14 @@ type WhatsAppSettings struct {
 }
 
 type AppConfig struct {
-	App      AppSettings      `mapstructure:"app"`
-	Logging  LoggingSettings  `mapstructure:"logging"`
-	Scraper  ScraperSettings  `mapstructure:"scraper"`
-	Telegram TelegramSettings `mapstructure:"telegram"`
-	Discord  DiscordSettings  `mapstructure:"discord"`
-	WhatsApp WhatsAppSettings `mapstructure:"whatsapp"`
-	LLM      LLMSettings      `mapstructure:"llm"`
+	ImmoScout ImmoScoutSettings `mapstructure:"immoscout"`
+	App       AppSettings       `mapstructure:"app"`
+	Logging   LoggingSettings   `mapstructure:"logging"`
+	Scraper   ScraperSettings   `mapstructure:"scraper"`
+	Telegram  TelegramSettings  `mapstructure:"telegram"`
+	Discord   DiscordSettings   `mapstructure:"discord"`
+	WhatsApp  WhatsAppSettings  `mapstructure:"whatsapp"`
+	LLM       LLMSettings       `mapstructure:"llm"`
 }
 
 func LoadConfig(path string) (*AppConfig, error) {
@@ -150,6 +158,9 @@ func LoadConfig(path string) (*AppConfig, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetConfigType("toml")
+	v.SetDefault("immoscout.api_base_url", "https://api.mobile.immobilienscout24.de")
+	v.SetDefault("immoscout.user_agent", "ImmoScout_27.12_26.2_._")
+	v.SetDefault("immoscout.page_size", 50)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, err

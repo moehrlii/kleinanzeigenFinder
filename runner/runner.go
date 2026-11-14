@@ -10,8 +10,8 @@ import (
 	"github.com/Kamuyin/kleinanzeigenFinder/llm"
 	"github.com/Kamuyin/kleinanzeigenFinder/model"
 	"github.com/Kamuyin/kleinanzeigenFinder/notify"
+	"github.com/Kamuyin/kleinanzeigenFinder/providers"
 	"github.com/Kamuyin/kleinanzeigenFinder/rules"
-	"github.com/Kamuyin/kleinanzeigenFinder/scraper"
 	"github.com/Kamuyin/kleinanzeigenFinder/storage"
 	"github.com/sirupsen/logrus"
 )
@@ -43,7 +43,7 @@ type Runner struct {
 	cfg        *config.AppConfig
 	seenStore  *storage.SeenStore
 	monRepo    *storage.MonitorRepository
-	scraper    *scraper.KleinanzeigenScraper
+	scrapers   map[string]providers.Provider
 	classifier *llm.Classifier
 	router     *notify.Router
 }
@@ -53,12 +53,12 @@ type listingWithClassification struct {
 	classification model.Classification
 }
 
-func New(cfg *config.AppConfig, seenStore *storage.SeenStore, monRepo *storage.MonitorRepository, scr *scraper.KleinanzeigenScraper, cls *llm.Classifier, router *notify.Router) *Runner {
+func New(cfg *config.AppConfig, seenStore *storage.SeenStore, monRepo *storage.MonitorRepository, activeProviders map[string]providers.Provider, cls *llm.Classifier, router *notify.Router) *Runner {
 	return &Runner{
 		cfg:        cfg,
 		seenStore:  seenStore,
 		monRepo:    monRepo,
-		scraper:    scr,
+		scrapers:   activeProviders,
 		classifier: cls,
 		router:     router,
 	}
@@ -166,6 +166,11 @@ func (r *Runner) runMonitorLoop(ctx context.Context, monitor config.MonitorConfi
 
 func (r *Runner) processMonitor(ctx context.Context, monitor config.MonitorConfig, sendNotify bool) (RunStats, error) {
 	var stats RunStats
+	platform := providers.MonitorPlatform(monitor.Platform, monitor.SearchURL)
+	provider, ok := r.scrapers[platform]
+	if !ok {
+		return stats, fmt.Errorf("unsupported platform %q", platform)
+	}
 	mode := normalizeMode(monitor.Mode)
 	watchPages := monitor.WatchPages
 	if watchPages <= 0 {
@@ -178,7 +183,7 @@ func (r *Runner) processMonitor(ctx context.Context, monitor config.MonitorConfi
 	}
 
 	logrus.Infof("[%s] Discovering listings (mode=%s, max_pages=%s)...", monitor.Name, mode, maxPagesLabel(maxPages))
-	listings, err := r.scraper.FetchListingsPages(monitor.SearchURL, monitor.MaxResults, maxPages)
+	listings, err := provider.FetchListingsPages(monitor.SearchURL, monitor.MaxResults, maxPages)
 	if err != nil {
 		return stats, fmt.Errorf("scraper error: %w", err)
 	}
@@ -312,6 +317,8 @@ func (r *Runner) processQueuedListings(ctx context.Context, monitor config.Monit
 }
 
 func (r *Runner) fetchDetails(ctx context.Context, monitor config.MonitorConfig, listings []model.Listing) []model.Listing {
+	platform := providers.MonitorPlatform(monitor.Platform, monitor.SearchURL)
+	provider := r.scrapers[platform]
 	if !monitor.FetchDetails || len(listings) == 0 {
 		return listings
 	}
@@ -328,7 +335,7 @@ func (r *Runner) fetchDetails(ctx context.Context, monitor config.MonitorConfig,
 
 			listing := listings[i]
 			logrus.Debugf("[%s] Fetching detail page for id=%s url=%s", monitor.Name, listing.Identity(), listing.URL)
-			detail, err := r.scraper.FetchDetail(listing)
+			detail, err := provider.FetchDetail(listing)
 			if err == nil {
 				listings[i] = detail
 				logrus.Debugf("[%s] Detail loaded for id=%s", monitor.Name, detail.Identity())
@@ -345,10 +352,8 @@ func (r *Runner) fetchDetails(ctx context.Context, monitor config.MonitorConfig,
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 
-	for worker := 0; worker < concurrency; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for index := range jobs {
 				select {
 				case <-ctx.Done():
@@ -358,7 +363,7 @@ func (r *Runner) fetchDetails(ctx context.Context, monitor config.MonitorConfig,
 
 				listing := listings[index]
 				logrus.Debugf("[%s] Fetching detail page for id=%s url=%s", monitor.Name, listing.Identity(), listing.URL)
-				detail, err := r.scraper.FetchDetail(listing)
+				detail, err := provider.FetchDetail(listing)
 				if err == nil {
 					listings[index] = detail
 					logrus.Debugf("[%s] Detail loaded for id=%s", monitor.Name, detail.Identity())
@@ -366,7 +371,7 @@ func (r *Runner) fetchDetails(ctx context.Context, monitor config.MonitorConfig,
 					logrus.Warnf("[%s] Could not fetch detail for id=%s: %v", monitor.Name, listing.Identity(), err)
 				}
 			}
-		}()
+		})
 	}
 
 	for i := 0; i < limit; i++ {
@@ -422,10 +427,8 @@ func (r *Runner) classifyListings(ctx context.Context, monitor config.MonitorCon
 		jobs := make(chan model.Listing)
 		var wg sync.WaitGroup
 
-		for worker := 0; worker < concurrency; worker++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range concurrency {
+			wg.Go(func() {
 				for listing := range jobs {
 					select {
 					case <-ctx.Done():
@@ -445,7 +448,7 @@ func (r *Runner) classifyListings(ctx context.Context, monitor config.MonitorCon
 					case results <- result:
 					}
 				}
-			}()
+			})
 		}
 
 		for _, listing := range listings {

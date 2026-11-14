@@ -2,14 +2,17 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/Kamuyin/kleinanzeigenFinder/config"
 	"github.com/Kamuyin/kleinanzeigenFinder/model"
+	"github.com/Kamuyin/kleinanzeigenFinder/providers"
 	"gorm.io/gorm"
 )
 
 type MonitorModel struct {
+	Platform                string
 	Name                    string `gorm:"primaryKey"`
 	SearchURL               string
 	Criteria                string
@@ -122,6 +125,7 @@ func (r *MonitorRepository) Upsert(monitor config.MonitorConfig, source string) 
 	rulesJSON, _ := json.Marshal(monitor.Rules)
 
 	model := MonitorModel{
+		Platform:                providers.MonitorPlatform(monitor.Platform, monitor.SearchURL),
 		Name:                    monitor.Name,
 		SearchURL:               monitor.SearchURL,
 		Criteria:                monitor.Criteria,
@@ -141,6 +145,9 @@ func (r *MonitorRepository) Upsert(monitor config.MonitorConfig, source string) 
 
 	var existing MonitorModel
 	if r.db.Where("name = ?", monitor.Name).First(&existing).Error == nil {
+		if providers.MonitorPlatform(existing.Platform, existing.SearchURL) != providers.MonitorPlatform(monitor.Platform, monitor.SearchURL) {
+			return fmt.Errorf("create a new monitor name when changing platforms")
+		}
 		model.CreatedAt = existing.CreatedAt
 		model.DiscordChannelID = existing.DiscordChannelID
 		model.LastBackfillCompletedAt = existing.LastBackfillCompletedAt
@@ -325,6 +332,7 @@ func (r *MonitorRepository) monitorFromModel(m MonitorModel) config.MonitorConfi
 	var rules config.RulesConfig
 	_ = json.Unmarshal([]byte(m.RulesJSON), &rules)
 	return config.MonitorConfig{
+		Platform:                providers.MonitorPlatform(m.Platform, m.SearchURL),
 		Name:                    m.Name,
 		SearchURL:               m.SearchURL,
 		Criteria:                m.Criteria,

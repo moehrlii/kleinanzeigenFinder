@@ -14,8 +14,8 @@ import (
 	"github.com/Kamuyin/kleinanzeigenFinder/notify/discord"
 	"github.com/Kamuyin/kleinanzeigenFinder/notify/telegram"
 	"github.com/Kamuyin/kleinanzeigenFinder/notify/whatsapp"
+	"github.com/Kamuyin/kleinanzeigenFinder/providers"
 	"github.com/Kamuyin/kleinanzeigenFinder/runner"
-	"github.com/Kamuyin/kleinanzeigenFinder/scraper"
 	"github.com/Kamuyin/kleinanzeigenFinder/storage"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -48,11 +48,16 @@ var runCmd = &cobra.Command{
 		seenStore := storage.NewSeenStore(db)
 		monRepo := storage.NewMonitorRepository(db)
 
-		scr, err := scraper.New(appCfg.Scraper)
-		if err != nil {
-			return fmt.Errorf("could not init scraper: %w", err)
+		catalog := providers.DefaultRegistry()
+		activeProviders := make(map[string]providers.Provider)
+		for _, definition := range catalog.Available() {
+			instance, err := definition.Open(providers.Settings{Browser: appCfg.Scraper, ImmoScout: appCfg.ImmoScout})
+			if err != nil {
+				return fmt.Errorf("could not initialize %s: %w", definition.Name, err)
+			}
+			defer instance.Close()
+			activeProviders[definition.ID] = instance
 		}
-		defer scr.Close()
 
 		cls, err := llm.NewClassifier(appCfg.LLM)
 		if err != nil {
@@ -88,15 +93,18 @@ var runCmd = &cobra.Command{
 			}
 		}
 
-		router := &notify.Router{
-			Telegram: tg,
-			WhatsApp: wa,
+		router := &notify.Router{}
+		if tg != nil {
+			router.Telegram = tg
+		}
+		if wa != nil {
+			router.WhatsApp = wa
 		}
 		if disc != nil {
 			router.Discord = disc
 		}
 
-		r := runner.New(appCfg, seenStore, monRepo, scr, cls, router)
+		r := runner.New(appCfg, seenStore, monRepo, activeProviders, cls, router)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
