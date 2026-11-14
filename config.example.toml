@@ -14,6 +14,11 @@ detail_delay_seconds = 0.8
 detail_concurrency = 1
 user_agent = ""
 
+[immoscout]
+api_base_url = "https://api.mobile.immobilienscout24.de"
+user_agent = "ImmoScout_27.12_26.2_._"
+page_size = 50
+
 [telegram]
 enabled = true
 bot_token_env = "TELEGRAM_BOT_TOKEN"

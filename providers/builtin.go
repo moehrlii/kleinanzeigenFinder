@@ -24,7 +24,12 @@ func DefaultRegistry() *Registry {
 			ValidateSearchURL: kleinanzeigen.ValidateSearchURL, DraftInstructions: kleinanzeigen.DraftInstructions,
 			Open: func(cfg Settings) (ManagedProvider, error) { return kleinanzeigen.New(cfg.Browser) },
 		},
-		Definition{ID: immoscout.ID, Name: immoscout.Name, Hosts: []string{"www.immobilienscout24.de", "immobilienscout24.de", "api.mobile.immobilienscout24.de"}},
+		Definition{
+			ID: immoscout.ID, Name: immoscout.Name,
+			Hosts:             []string{"www.immobilienscout24.de", "immobilienscout24.de", "api.mobile.immobilienscout24.de"},
+			ValidateSearchURL: immoscout.ValidateSearchURL, DraftInstructions: immoscout.DraftInstructions,
+			Open: func(cfg Settings) (ManagedProvider, error) { return immoscout.New(cfg.ImmoScout), nil },
+		},
 		Definition{ID: ebay.ID, Name: ebay.Name, Hosts: []string{"www.ebay.de", "ebay.de", "www.ebay.com", "ebay.com"}},
 		Definition{ID: wggesucht.ID, Name: wggesucht.Name, Hosts: []string{"www.wg-gesucht.de", "wg-gesucht.de"}},
 	)
