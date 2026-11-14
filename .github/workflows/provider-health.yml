@@ -56,11 +56,12 @@ jobs:
           mkdir -p artifacts
           go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium 2>&1 | tee artifacts/playwright-install.log
           go run github.com/mxschmitt/playwright-go/cmd/playwright --version | tee artifacts/playwright-version.log
+          sudo apt-get install -y xauth
       - name: Run regressions without live marketplace requests
         run: |
           mkdir -p artifacts
           set -o pipefail
-          go test -count=1 -timeout=5m -json ./... | tee artifacts/regression.jsonl
+          xvfb-run -a go test -count=1 -timeout=5m -json ./... | tee artifacts/regression.jsonl
       - name: Save regression results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -127,7 +128,14 @@ jobs:
         run: |
           mkdir -p artifacts
           set -o pipefail
-          go test -count=1 -timeout=5m -json ./providers/providercheck -run '^TestLiveProviders$' | tee artifacts/live.jsonl
+          # eBay starts ordinary headed Chrome and attaches through CDP.
+          # Playwright --with-deps installs Xvfb.
+          if [[ '${{ matrix.id }}' == 'ebay' ]]; then
+            sudo apt-get install -y xauth
+            xvfb-run -a go test -count=1 -timeout=5m -json ./providers/providercheck -run '^TestLiveProviders$' | tee artifacts/live.jsonl
+          else
+            go test -count=1 -timeout=5m -json ./providers/providercheck -run '^TestLiveProviders$' | tee artifacts/live.jsonl
+          fi
       - name: Summarize provider health
         if: always()
         run: |
